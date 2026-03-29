@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "open-er-env"
+version = "0.1.0"
+description = "OpenER: emergency department triage benchmark for OpenEnv"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "openenv-core>=0.2.2",
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.30.0",
+    "pydantic>=2.8.0",
+    "requests>=2.31.0",
+    "websockets>=14.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+]
+
+[project.scripts]
+server = "open_er.server.app:main"
+
+[tool.setuptools]
+include-package-data = true
+packages = ["open_er", "open_er.server"]
+package-dir = { "open_er" = ".", "open_er.server" = "server" }
+
+[tool.setuptools.package-data]
+open_er = ["**/*.md", "**/*.yaml", "**/*.yml"]
