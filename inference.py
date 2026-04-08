@@ -28,6 +28,7 @@ import asyncio
 import importlib.util
 import json
 import os
+import shutil
 import socket
 import subprocess
 import sys
@@ -58,6 +59,7 @@ MAX_STEPS = int(os.getenv("OPEN_ER_MAX_STEPS", "96"))
 TEMPERATURE = float(os.getenv("OPEN_ER_TEMPERATURE", "0.1"))
 MAX_TOKENS = int(os.getenv("OPEN_ER_MAX_TOKENS", "900"))
 REQUEST_TIMEOUT_S = float(os.getenv("OPEN_ER_REQUEST_TIMEOUT_S", "60"))
+MAX_RETRIES = int(os.getenv("OPEN_ER_MAX_RETRIES", "0"))
 
 
 def _load_source_package() -> None:
@@ -179,7 +181,7 @@ def log_step(step: int, action: str, reward: float, done: bool, error: str | Non
 def log_end(success: bool, steps: int, score: float, rewards: list[float]) -> None:
     rewards_str = ",".join(f"{reward:.2f}" for reward in rewards)
     print(
-        f"[END] success={str(success).lower()} steps={steps} score={score:.4f} rewards={rewards_str}",
+        f"[END] success={str(success).lower()} steps={steps} score={score:.2f} rewards={rewards_str}",
         flush=True,
     )
 
@@ -266,6 +268,79 @@ class ManagedDockerContainer:
             text=True,
             check=False,
         )
+
+
+@dataclass
+class ManagedLocalServer:
+    host_port: int
+    process: subprocess.Popen[bytes]
+
+    @property
+    def base_url(self) -> str:
+        return f"http://127.0.0.1:{self.host_port}"
+
+    @classmethod
+    def start(cls) -> "ManagedLocalServer":
+        host_port = _find_free_port()
+
+        if shutil.which("uv"):
+            command = [
+                "uv",
+                "run",
+                "--project",
+                str(ROOT),
+                "--",
+                "uvicorn",
+                "server.app:app",
+                "--host",
+                "127.0.0.1",
+                "--port",
+                str(host_port),
+                "--workers",
+                "1",
+            ]
+        else:
+            command = [
+                sys.executable,
+                "-m",
+                "uvicorn",
+                "server.app:app",
+                "--host",
+                "127.0.0.1",
+                "--port",
+                str(host_port),
+                "--workers",
+                "1",
+            ]
+
+        env = os.environ.copy()
+        existing_pythonpath = env.get("PYTHONPATH")
+        env["PYTHONPATH"] = f"{ROOT}:{existing_pythonpath}" if existing_pythonpath else str(ROOT)
+
+        process = subprocess.Popen(
+            command,
+            cwd=str(ROOT),
+            env=env,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+
+        managed = cls(host_port=host_port, process=process)
+        try:
+            _wait_for_health(managed.base_url)
+        except Exception:
+            managed.stop()
+            raise
+        return managed
+
+    def stop(self) -> None:
+        if self.process.poll() is None:
+            self.process.terminate()
+            try:
+                self.process.wait(timeout=10.0)
+            except subprocess.TimeoutExpired:
+                self.process.kill()
+                self.process.wait(timeout=5.0)
 
 
 def _severity_signal(patient: Any) -> str:
@@ -520,7 +595,7 @@ def build_user_prompt(observation: ERObservation, heuristic: ERAction) -> str:
     ).strip()
 
 
-def request_model_action(client: OpenAI, observation: ERObservation) -> tuple[ERAction, str | None]:
+def request_model_action(client: OpenAI, observation: ERObservation) -> ERAction:
     heuristic = heuristic_action(observation)
     user_prompt = build_user_prompt(observation, heuristic)
 
@@ -537,12 +612,12 @@ def request_model_action(client: OpenAI, observation: ERObservation) -> tuple[ER
         content = (completion.choices[0].message.content or "").strip()
         parsed = _first_json_object(content)
         action = sanitize_action(parsed, observation)
-        return action, None
-    except Exception as exc:
-        return heuristic, f"model_fallback:{_single_line(str(exc))}"
+        return action
+    except Exception:
+        return heuristic
 
 
-async def connect_env() -> tuple[Any, ManagedDockerContainer | None]:
+async def connect_env() -> tuple[Any, ManagedDockerContainer | ManagedLocalServer | None]:
     if OPEN_ER_BASE_URL:
         env = OpenEREnv(base_url=OPEN_ER_BASE_URL)
         await env.connect()
@@ -554,12 +629,10 @@ async def connect_env() -> tuple[Any, ManagedDockerContainer | None]:
         await env.connect()
         return env, managed
 
-    env = await OpenEREnv.from_env(
-        OPEN_ER_REPO_ID,
-        use_docker=False,
-        project_path=str(ROOT),
-    )
-    return env, None
+    managed = ManagedLocalServer.start()
+    env = OpenEREnv(base_url=managed.base_url)
+    await env.connect()
+    return env, managed
 
 
 def benchmark_score_from_result(result: Any, state: Any | None) -> float:
@@ -577,10 +650,15 @@ async def main() -> None:
     if not api_key:
         raise SystemExit("HF_TOKEN is required for inference")
 
-    client = OpenAI(base_url=API_BASE_URL, api_key=api_key, timeout=REQUEST_TIMEOUT_S)
+    client = OpenAI(
+        base_url=API_BASE_URL,
+        api_key=api_key,
+        timeout=REQUEST_TIMEOUT_S,
+        max_retries=MAX_RETRIES,
+    )
 
     env = None
-    managed_container: ManagedDockerContainer | None = None
+    managed_container: ManagedDockerContainer | ManagedLocalServer | None = None
     rewards: list[float] = []
     steps_taken = 0
     success = False
@@ -594,7 +672,7 @@ async def main() -> None:
         result = await env.reset(task_id=TASK_NAME, seed=SEED)
 
         while not result.done and steps_taken < MAX_STEPS:
-            action, action_error = request_model_action(client, result.observation)
+            action = request_model_action(client, result.observation)
             result = await env.step(action)
             reward = float(result.reward or 0.0)
             rewards.append(reward)
@@ -604,7 +682,7 @@ async def main() -> None:
                 action=action_to_log_string(action),
                 reward=reward,
                 done=bool(result.done),
-                error=action_error,
+                error=None,
             )
             if result.done:
                 break

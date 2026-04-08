@@ -21,6 +21,7 @@
 set -uo pipefail
 
 DOCKER_BUILD_TIMEOUT=600
+INFERENCE_TIMEOUT_PER_TASK=300
 
 if [ -t 1 ]; then
   RED='\033[0;31m'
@@ -125,6 +126,20 @@ find_openenv_cmd() {
   return 1
 }
 
+setup_project_python_cmd() {
+  if command -v uv >/dev/null 2>&1 && [ -f "$REPO_DIR/pyproject.toml" ]; then
+    PROJECT_PYTHON_CMD=(uv run --project "$REPO_DIR" python)
+    return 0
+  fi
+
+  if command -v python3 >/dev/null 2>&1; then
+    PROJECT_PYTHON_CMD=(python3)
+    return 0
+  fi
+
+  return 1
+}
+
 SPACE_INPUT="${1:-}"
 REPO_DIR="${2:-.}"
 
@@ -149,6 +164,7 @@ fi
 
 export PING_URL
 PASS=0
+PROJECT_PYTHON_CMD=()
 
 printf "\n"
 printf "${BOLD}========================================${NC}\n"
@@ -159,7 +175,7 @@ log "Space input: $SPACE_INPUT"
 log "Ping URL:    $PING_URL"
 printf "\n"
 
-log "${BOLD}Step 1/3: Pinging HF Space${NC} ($PING_URL/reset) ..."
+log "${BOLD}Step 1/5: Pinging HF Space${NC} ($PING_URL/reset) ..."
 
 CURL_STDOUT=$(portable_mktemp "validate-curl-out")
 CURL_STDERR=$(portable_mktemp "validate-curl-err")
@@ -184,7 +200,7 @@ else
   stop_at "Step 1"
 fi
 
-log "${BOLD}Step 2/3: Running docker build${NC} ..."
+log "${BOLD}Step 2/5: Running docker build${NC} ..."
 
 if ! command -v docker >/dev/null 2>&1; then
   fail "docker command not found"
@@ -220,7 +236,7 @@ else
   stop_at "Step 2"
 fi
 
-log "${BOLD}Step 3/3: Running openenv validate${NC} ..."
+log "${BOLD}Step 3/5: Running openenv validate${NC} ..."
 
 if ! OPENENV_CMD="$(find_openenv_cmd)"; then
   fail "openenv command not found"
@@ -245,9 +261,182 @@ else
   stop_at "Step 3"
 fi
 
+log "${BOLD}Step 4/5: Checking inference.py contract${NC} ..."
+
+if [ ! -f "$REPO_DIR/inference.py" ]; then
+  fail "Missing root-level inference.py"
+  hint "Place the submitted inference runner at $REPO_DIR/inference.py"
+  stop_at "Step 4"
+fi
+
+if ! grep -q 'API_BASE_URL' "$REPO_DIR/inference.py"; then
+  fail "inference.py does not reference API_BASE_URL"
+  stop_at "Step 4"
+fi
+
+if ! grep -q 'MODEL_NAME' "$REPO_DIR/inference.py"; then
+  fail "inference.py does not reference MODEL_NAME"
+  stop_at "Step 4"
+fi
+
+if ! grep -q 'HF_TOKEN' "$REPO_DIR/inference.py"; then
+  fail "inference.py does not reference HF_TOKEN"
+  stop_at "Step 4"
+fi
+
+if ! grep -Eq 'from openai import OpenAI|import openai' "$REPO_DIR/inference.py"; then
+  fail "inference.py does not use the OpenAI client"
+  stop_at "Step 4"
+fi
+
+if ! grep -q '\[START\]' "$REPO_DIR/inference.py" || ! grep -q '\[STEP\]' "$REPO_DIR/inference.py" || ! grep -q '\[END\]' "$REPO_DIR/inference.py"; then
+  fail "inference.py is missing required structured log markers"
+  stop_at "Step 4"
+fi
+
+if ! setup_project_python_cmd; then
+  fail "Could not find a Python runtime for project-level checks"
+  hint "Install uv or python3."
+  stop_at "Step 4"
+fi
+
+if (cd "$REPO_DIR" && "${PROJECT_PYTHON_CMD[@]}" -m py_compile inference.py) >/dev/null 2>&1; then
+  pass "inference.py exists, compiles, and references the required interface"
+else
+  fail "inference.py does not compile"
+  stop_at "Step 4"
+fi
+
+log "${BOLD}Step 5/5: Running inference across official tasks${NC} ..."
+
+TASKS_RAW=$(
+  cd "$REPO_DIR" && "${PROJECT_PYTHON_CMD[@]}" - <<'PY'
+import importlib.util
+import sys
+from pathlib import Path
+
+root = Path.cwd()
+
+try:
+    from open_er.server.tasks import OFFICIAL_TASKS
+except Exception:
+    spec = importlib.util.spec_from_file_location(
+        "open_er",
+        root / "__init__.py",
+        submodule_search_locations=[str(root)],
+    )
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["open_er"] = module
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    from open_er.server.tasks import OFFICIAL_TASKS
+
+for task_name in OFFICIAL_TASKS:
+    print(task_name)
+PY
+)
+
+TASKS=$(printf "%s\n" "$TASKS_RAW" | sed '/^[[:space:]]*$/d')
+TASK_COUNT=$(printf "%s\n" "$TASKS" | sed '/^[[:space:]]*$/d' | wc -l | tr -d ' ')
+
+if [ "$TASK_COUNT" -lt 3 ]; then
+  fail "Expected at least 3 official tasks, found $TASK_COUNT"
+  stop_at "Step 5"
+fi
+
+log "  Found $TASK_COUNT official tasks"
+
+while IFS= read -r TASK_NAME; do
+  [ -z "$TASK_NAME" ] && continue
+  TASK_STDOUT=$(portable_mktemp "validate-inference-out")
+  TASK_STDERR=$(portable_mktemp "validate-inference-err")
+  CLEANUP_FILES+=("$TASK_STDOUT" "$TASK_STDERR")
+
+  log "  Running inference.py for task=$TASK_NAME"
+
+  if (
+    cd "$REPO_DIR" && \
+    run_with_timeout "$INFERENCE_TIMEOUT_PER_TASK" env \
+      API_BASE_URL="http://127.0.0.1:1/v1" \
+      MODEL_NAME="validator-smoke" \
+      HF_TOKEN="dummy" \
+      OPEN_ER_TASK="$TASK_NAME" \
+      OPEN_ER_REQUEST_TIMEOUT_S="0.2" \
+      OPEN_ER_MAX_RETRIES="0" \
+      "${PROJECT_PYTHON_CMD[@]}" inference.py
+  ) >"$TASK_STDOUT" 2>"$TASK_STDERR"; then
+    :
+  else
+    fail "inference.py failed for task=$TASK_NAME"
+    [ -s "$TASK_STDOUT" ] && printf "%s\n" "$(cat "$TASK_STDOUT")"
+    [ -s "$TASK_STDERR" ] && printf "%s\n" "$(cat "$TASK_STDERR")"
+    stop_at "Step 5"
+  fi
+
+  if ! python3 - "$TASK_STDOUT" "$TASK_NAME" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+task_name = sys.argv[2]
+lines = path.read_text().splitlines()
+
+if not lines:
+    raise SystemExit("No stdout emitted")
+
+start_re = re.compile(rf"^\[START\] task={re.escape(task_name)} env=open_er model=.+$")
+step_re = re.compile(r"^\[STEP\] step=(\d+) action=.* reward=(-?\d+\.\d{2}) done=(true|false) error=null$")
+end_re = re.compile(r"^\[END\] success=(true|false) steps=(\d+) score=(\d+\.\d{2}) rewards=(.*)$")
+
+if not start_re.match(lines[0]):
+    raise SystemExit(f"Invalid [START] line: {lines[0]}")
+
+if len(lines) < 3:
+    raise SystemExit("Expected at least one [STEP] line and one [END] line")
+
+step_lines = lines[1:-1]
+if not step_lines:
+    raise SystemExit("Missing [STEP] lines")
+
+for line in step_lines:
+    if not step_re.match(line):
+        raise SystemExit(f"Invalid [STEP] line: {line}")
+
+end_match = end_re.match(lines[-1])
+if not end_match:
+    raise SystemExit(f"Invalid [END] line: {lines[-1]}")
+
+success = end_match.group(1)
+steps = int(end_match.group(2))
+score = float(end_match.group(3))
+rewards_field = end_match.group(4)
+rewards = [] if rewards_field == "" else rewards_field.split(",")
+
+if success != "true":
+    raise SystemExit("Inference run did not report success=true")
+if steps != len(step_lines):
+    raise SystemExit(f"steps={steps} does not match emitted [STEP] lines={len(step_lines)}")
+if not (0.0 <= score <= 1.0):
+    raise SystemExit(f"Score out of range: {score}")
+if len(rewards) != len(step_lines):
+    raise SystemExit("Reward count does not match [STEP] lines")
+
+print(f"score={score:.2f} steps={steps}")
+PY
+  then
+    fail "Structured stdout validation failed for task=$TASK_NAME"
+    [ -s "$TASK_STDOUT" ] && printf "%s\n" "$(cat "$TASK_STDOUT")"
+    [ -s "$TASK_STDERR" ] && printf "%s\n" "$(cat "$TASK_STDERR")"
+    stop_at "Step 5"
+  fi
+done <<< "$TASKS"
+
+pass "inference.py completed successfully across all official tasks with valid structured logs"
+
 printf "\n"
 printf "${BOLD}========================================${NC}\n"
-printf "${GREEN}${BOLD}  All 3/3 checks passed!${NC}\n"
+printf "${GREEN}${BOLD}  All 5/5 checks passed!${NC}\n"
 printf "${GREEN}${BOLD}  Your submission is ready to submit.${NC}\n"
 printf "${BOLD}========================================${NC}\n"
 printf "\n"
