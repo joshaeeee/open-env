@@ -1,0 +1,51 @@
+{
+  "policy": "heuristic",
+  "seeds": [
+    11,
+    13
+  ],
+  "runs": [
+    {
+      "task_id": "easy_single_critical",
+      "seed": 11,
+      "policy": "heuristic",
+      "score": 0.5615,
+      "reward": -5.675
+    },
+    {
+      "task_id": "easy_single_critical",
+      "seed": 13,
+      "policy": "heuristic",
+      "score": 0.6056,
+      "reward": -3.115
+    },
+    {
+      "task_id": "medium_evening_rush",
+      "seed": 11,
+      "policy": "heuristic",
+      "score": 0.5472,
+      "reward": -10.08
+    },
+    {
+      "task_id": "medium_evening_rush",
+      "seed": 13,
+      "policy": "heuristic",
+      "score": 0.5545,
+      "reward": -17.945
+    },
+    {
+      "task_id": "hard_capacity_crunch",
+      "seed": 11,
+      "policy": "heuristic",
+      "score": 0.493,
+      "reward": -44.785
+    },
+    {
+      "task_id": "hard_capacity_crunch",
+      "seed": 13,
+      "policy": "heuristic",
+      "score": 0.521,
+      "reward": -26.935
+    }
+  ]
+}

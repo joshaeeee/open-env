@@ -1,0 +1,227 @@
+{
+  "policy": "random",
+  "seeds": [
+    11,
+    13,
+    17,
+    19,
+    23,
+    29,
+    31,
+    37,
+    41,
+    43
+  ],
+  "runs": [
+    {
+      "task_id": "easy_single_critical",
+      "seed": 11,
+      "policy": "random",
+      "score": 0.3827,
+      "reward": -105.285
+    },
+    {
+      "task_id": "easy_single_critical",
+      "seed": 13,
+      "policy": "random",
+      "score": 0.3992,
+      "reward": -54.905
+    },
+    {
+      "task_id": "easy_single_critical",
+      "seed": 17,
+      "policy": "random",
+      "score": 0.4067,
+      "reward": -75.605
+    },
+    {
+      "task_id": "easy_single_critical",
+      "seed": 19,
+      "policy": "random",
+      "score": 0.3908,
+      "reward": -95.555
+    },
+    {
+      "task_id": "easy_single_critical",
+      "seed": 23,
+      "policy": "random",
+      "score": 0.3939,
+      "reward": -143.46
+    },
+    {
+      "task_id": "easy_single_critical",
+      "seed": 29,
+      "policy": "random",
+      "score": 0.3871,
+      "reward": -88.175
+    },
+    {
+      "task_id": "easy_single_critical",
+      "seed": 31,
+      "policy": "random",
+      "score": 0.3761,
+      "reward": -55.575
+    },
+    {
+      "task_id": "easy_single_critical",
+      "seed": 37,
+      "policy": "random",
+      "score": 0.4094,
+      "reward": -68.905
+    },
+    {
+      "task_id": "easy_single_critical",
+      "seed": 41,
+      "policy": "random",
+      "score": 0.3817,
+      "reward": -154.68
+    },
+    {
+      "task_id": "easy_single_critical",
+      "seed": 43,
+      "policy": "random",
+      "score": 0.4122,
+      "reward": -50.01
+    },
+    {
+      "task_id": "medium_evening_rush",
+      "seed": 11,
+      "policy": "random",
+      "score": 0.4189,
+      "reward": -136.635
+    },
+    {
+      "task_id": "medium_evening_rush",
+      "seed": 13,
+      "policy": "random",
+      "score": 0.44,
+      "reward": -75.705
+    },
+    {
+      "task_id": "medium_evening_rush",
+      "seed": 17,
+      "policy": "random",
+      "score": 0.4395,
+      "reward": -129.875
+    },
+    {
+      "task_id": "medium_evening_rush",
+      "seed": 19,
+      "policy": "random",
+      "score": 0.4445,
+      "reward": -107.78
+    },
+    {
+      "task_id": "medium_evening_rush",
+      "seed": 23,
+      "policy": "random",
+      "score": 0.4295,
+      "reward": -169.52
+    },
+    {
+      "task_id": "medium_evening_rush",
+      "seed": 29,
+      "policy": "random",
+      "score": 0.4208,
+      "reward": -166.43
+    },
+    {
+      "task_id": "medium_evening_rush",
+      "seed": 31,
+      "policy": "random",
+      "score": 0.4252,
+      "reward": -89.895
+    },
+    {
+      "task_id": "medium_evening_rush",
+      "seed": 37,
+      "policy": "random",
+      "score": 0.4387,
+      "reward": -77.32
+    },
+    {
+      "task_id": "medium_evening_rush",
+      "seed": 41,
+      "policy": "random",
+      "score": 0.4279,
+      "reward": -152.815
+    },
+    {
+      "task_id": "medium_evening_rush",
+      "seed": 43,
+      "policy": "random",
+      "score": 0.4249,
+      "reward": -78.075
+    },
+    {
+      "task_id": "hard_capacity_crunch",
+      "seed": 11,
+      "policy": "random",
+      "score": 0.4261,
+      "reward": -220.0
+    },
+    {
+      "task_id": "hard_capacity_crunch",
+      "seed": 13,
+      "policy": "random",
+      "score": 0.4256,
+      "reward": -142.705
+    },
+    {
+      "task_id": "hard_capacity_crunch",
+      "seed": 17,
+      "policy": "random",
+      "score": 0.4345,
+      "reward": -232.895
+    },
+    {
+      "task_id": "hard_capacity_crunch",
+      "seed": 19,
+      "policy": "random",
+      "score": 0.4256,
+      "reward": -192.235
+    },
+    {
+      "task_id": "hard_capacity_crunch",
+      "seed": 23,
+      "policy": "random",
+      "score": 0.4254,
+      "reward": -182.13
+    },
+    {
+      "task_id": "hard_capacity_crunch",
+      "seed": 29,
+      "policy": "random",
+      "score": 0.4253,
+      "reward": -284.99
+    },
+    {
+      "task_id": "hard_capacity_crunch",
+      "seed": 31,
+      "policy": "random",
+      "score": 0.438,
+      "reward": -214.485
+    },
+    {
+      "task_id": "hard_capacity_crunch",
+      "seed": 37,
+      "policy": "random",
+      "score": 0.4335,
+      "reward": -179.03
+    },
+    {
+      "task_id": "hard_capacity_crunch",
+      "seed": 41,
+      "policy": "random",
+      "score": 0.4126,
+      "reward": -177.045
+    },
+    {
+      "task_id": "hard_capacity_crunch",
+      "seed": 43,
+      "policy": "random",
+      "score": 0.4295,
+      "reward": -174.965
+    }
+  ]
+}
